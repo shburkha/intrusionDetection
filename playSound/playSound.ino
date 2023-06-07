@@ -1,11 +1,15 @@
-#include notes.h;
+#include "notes.h";
 
 //define Pin numbers
 const int microphonePin= 7;
 const int buzzerPin=11;
 const int movDetectPin= 8 ;
 
-const String analogMicrophonePin="A0";
+const int upButtonPin = 0;
+const int downButtonPin = 0;
+const int selectButtonPin = 0;
+
+const int analogMicrophonePin=A0;
 
 
 // !----global Variables----!
@@ -25,6 +29,7 @@ int motionStatus=0;
 bool isAlarmTriggered=false;
 bool isDetectionActive=false;
 
+int menuLayer = 1;
 
 void setup() {
 
@@ -60,7 +65,7 @@ void readAnalogMicrophoneInput(){
   microphoneAnalogVal=analogRead(analogMicrophonePin);
 
   //Print it, so it can be viewed with Tools→Serial Plotter
-  Serial.println(microphoneAnalogVal);
+  Serial.println(microphoneAnalogVal+"");
 
  
 
@@ -86,7 +91,7 @@ void detectMotion(){
 //reads the digital microphone input 
 void readMicrophoneInputDigital(){
 
-  microphoneDigitalVal = digitalRead(7); 
+  microphoneDigitalVal = digitalRead(microphonePin); 
 
   //sensor returns false false when something is detected
   if (!microphoneDigitalVal ) {
@@ -100,18 +105,18 @@ void readMicrophoneInputDigital(){
 
 //plays a low C note for 1 Second
 void playLowSound(){
-  tone(11, NOTE_C2, 1000);
+  tone(buzzerPin, NOTE_C2, 1000);
   delay(1200);
-  noTone(11);
+  noTone(buzzerPin);
 
 }
 
 //plays a high C note for 1 Second
 void playHighSound(){
 
-  tone(11, NOTE_C5, 1000);
+  tone(buzzerPin, NOTE_C5, 1000);
   delay(1200);
-  noTone(11);
+  noTone(buzzerPin);
 
   
 }
