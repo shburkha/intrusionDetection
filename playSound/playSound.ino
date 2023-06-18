@@ -1,5 +1,10 @@
 #include "notes.h";
 
+//library for LCD DIsplay
+#include <LiquidCrystal.h>
+
+
+
 //define Pin numbers
 const int microphonePin= 7;
 const int buzzerPin=11;
@@ -13,6 +18,10 @@ const int analogMicrophonePin=A0;
 
 
 // !----global Variables----!
+
+//Setup LCD display Pins
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 // delay used for playing music
 const int pauseMusicDelay = 200;
@@ -38,6 +47,12 @@ void setup() {
   pinMode(buzzerPin, OUTPUT);
   pinMode(movDetectPin, INPUT);
 
+ // set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+
+  // Print a message to the LCD.
+  lcd.print("hello, world!");
+
 
   Serial.begin(9600);
 }
@@ -55,7 +70,6 @@ void loop() {
   if(isAlarmTriggered){
     PlayAlarm();
   }
- 
 
 }
 
