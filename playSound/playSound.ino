@@ -1,8 +1,12 @@
 #include "notes.h";
 
 //library for LCD DIsplay
-#include <LiquidCrystal.h>
+#include <LiquidCrystal_I2C.h>;
+#include <SoftwareSerial.h>;
 
+// Configure software serial port
+SoftwareSerial SIM900(12, 13); 
+char incoming_char=0;
 
 
 //define Pin numbers
@@ -10,8 +14,9 @@ const int microphonePin= 7;
 const int buzzerPin=11;
 const int movDetectPin= 8 ;
 
-const int upButtonPin = 0;
-const int downButtonPin = 0;
+//TODO: pin numbers
+const int upButtonPin = 2;
+const int downButtonPin = 1;
 const int selectButtonPin = 0;
 
 const int analogMicrophonePin=A0;
@@ -20,8 +25,8 @@ const int analogMicrophonePin=A0;
 // !----global Variables----!
 
 //Setup LCD display Pins
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+LiquidCrystal_I2C lcd(0x27,20,4);
 
 // delay used for playing music
 const int pauseMusicDelay = 200;
@@ -38,32 +43,63 @@ int motionStatus=0;
 bool isAlarmTriggered=false;
 bool isDetectionActive=false;
 
-int menuLayer = 1;
+int menu = 1;
 
 void setup() {
+ SIM900.begin(19200);
+  Serial.begin(19200);
+
+
+  // Give time to your GSM shield log on to network
+  delay(20000);  
 
   //setup pinmodes
   pinMode(microphonePin, INPUT);
   pinMode(buzzerPin, OUTPUT);
   pinMode(movDetectPin, INPUT);
 
+  pinMode(upButtonPin,INPUT_PULLUP);
+  pinMode(downButtonPin,INPUT_PULLUP);
+  pinMode(selectButtonPin,INPUT_PULLUP);
+
+
  // set up the LCD's number of columns and rows:
-  lcd.begin(16, 2);
+ lcd.init();
+ lcd.backlight();
 
-  // Print a message to the LCD.
-  lcd.print("hello, world!");
+sendSMS();
+ 
+  updateMenu();
+  // AT command to set SIM900 to SMS mode
+  SIM900.print("AT+CMGF=1\r"); 
+  delay(100);
+  // Set module to send SMS data to serial out upon receipt 
+  SIM900.print("AT+CNMI=2,2,0,0,0\r");
+  delay(100);
+  
+  
+ 
 
 
-  Serial.begin(9600);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
- 
+
+ // Display any text that the GSM shield sends out on the serial monitor
+  if(SIM900.available() >0) {
+    //Get the character from the cellular serial port
+    incoming_char=SIM900.read(); 
+    //Print the incoming character to the terminal
+    Serial.print(incoming_char); 
+  }
+
+  menuLoop();
+
   //Read Inputs
   if(isDetectionActive){
     readAnalogMicrophoneInput();
-    readMicrophoneInputDigital();
+   // readMicrophoneInputDigital();
     detectMotion();
   }
 
@@ -72,6 +108,132 @@ void loop() {
   }
 
 }
+void sendSMS() {
+  // AT command to set SIM900 to SMS mode
+  SIM900.print("AT+CMGF=1\r"); 
+  delay(100);
+
+  // REPLACE THE X's WITH THE RECIPIENT'S MOBILE NUMBER
+  // USE INTERNATIONAL FORMAT CODE FOR MOBILE NUMBERS
+  SIM900.println("AT+CMGS=\"+4915201798490\""); 
+  delay(100);
+  
+  // REPLACE WITH YOUR OWN SMS MESSAGE CONTENT
+  SIM900.println("Message example from Arduino Uno."); 
+  delay(100);
+
+  // End AT command with a ^Z, ASCII code 26
+  SIM900.println((char)26); 
+  delay(100);
+  SIM900.println();
+  // Give module time to send SMS
+  delay(5000); 
+}
+void menuLoop(){
+
+  if (!digitalRead(downButtonPin)){
+    menu++;
+    updateMenu();
+    delay(100);
+    while (!digitalRead(downButtonPin));
+  }
+  if (!digitalRead(upButtonPin)){
+   
+    menu--;
+    updateMenu();
+    delay(100);
+    while(!digitalRead(upButtonPin));
+  }
+  if (!digitalRead(selectButtonPin)){
+    executeAction();
+    updateMenu();
+    delay(100);
+    while (!digitalRead(selectButtonPin));
+  }
+}
+
+void updateMenu(){
+  switch (menu) {
+    case 0:
+      menu = 1;
+      break;
+    case 1:
+      lcd.clear();
+      lcd.print(">MenuItem1");
+      lcd.setCursor(0, 1);
+      lcd.print(" MenuItem2");
+      break;
+    case 2:
+      lcd.clear();
+      lcd.print(" MenuItem1");
+      lcd.setCursor(0, 1);
+      lcd.print(">MenuItem2");
+      break;
+    case 3:
+      lcd.clear();
+      lcd.print(">MenuItem3");
+      lcd.setCursor(0, 1);
+      lcd.print(" MenuItem4");
+      break;
+    case 4:
+      lcd.clear();
+      lcd.print(" MenuItem3");
+      lcd.setCursor(0, 1);
+      lcd.print(">MenuItem4");
+      break;
+    case 5:
+      menu = 4;
+      break;
+  }
+
+}
+
+void executeAction() {
+  switch (menu) {
+    case 1:
+      action1();
+      break;
+    case 2:
+      action2();
+      break;
+    case 3:
+      action3();
+      break;
+    case 4:
+      action4();
+      break;
+  }
+}
+
+void action1() {
+  lcd.clear();
+  lcd.print(">Executing #1");
+  sendSMS();
+  delay(1500);
+}
+void action2() {
+  lcd.clear();
+  lcd.print(">Executing #2");
+  delay(1500);
+}
+void action3() {
+  lcd.clear();
+  lcd.print(">Executing #3");
+  delay(1500);
+}
+void action4() {
+  lcd.clear();
+  lcd.print(">Executing #4");
+  delay(1500);
+}
+
+
+
+
+
+
+
+
 
 
 void readAnalogMicrophoneInput(){
