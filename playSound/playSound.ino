@@ -67,9 +67,10 @@ void setup() {
  lcd.init();
  lcd.backlight();
 
-sendSMS();
  
   updateMenu();
+
+  //receive SMS
   // AT command to set SIM900 to SMS mode
   SIM900.print("AT+CMGF=1\r"); 
   delay(100);
@@ -159,25 +160,25 @@ void updateMenu(){
       break;
     case 1:
       lcd.clear();
-      lcd.print(">MenuItem1");
+      lcd.print(">SMS Test");
       lcd.setCursor(0, 1);
-      lcd.print(" MenuItem2");
+      lcd.print(" Test Alarm");
       break;
     case 2:
       lcd.clear();
-      lcd.print(" MenuItem1");
+      lcd.print(" SMS Test");
       lcd.setCursor(0, 1);
-      lcd.print(">MenuItem2");
+      lcd.print(">Test Alarm");
       break;
     case 3:
       lcd.clear();
-      lcd.print(">MenuItem3");
+      lcd.print(">Activate Detection");
       lcd.setCursor(0, 1);
       lcd.print(" MenuItem4");
       break;
     case 4:
       lcd.clear();
-      lcd.print(" MenuItem3");
+      lcd.print(" Activate Detection");
       lcd.setCursor(0, 1);
       lcd.print(">MenuItem4");
       break;
@@ -207,18 +208,20 @@ void executeAction() {
 
 void action1() {
   lcd.clear();
-  lcd.print(">Executing #1");
+  lcd.print(">Executing SMS Test");
   sendSMS();
   delay(1500);
 }
 void action2() {
   lcd.clear();
-  lcd.print(">Executing #2");
+  lcd.print(">Executing Test Alarm");
+  isAlarmTriggered=!isAlarmTriggered;
   delay(1500);
 }
 void action3() {
   lcd.clear();
-  lcd.print(">Executing #3");
+  isDetectionActive =!isDetectionActive;
+  lcd.print(">Activating detection");
   delay(1500);
 }
 void action4() {
@@ -249,6 +252,7 @@ void readAnalogMicrophoneInput(){
 
 void PlayAlarm(){
 
+  PlayLowSound();
 
 }
 
@@ -260,7 +264,7 @@ void detectMotion(){
   //if something is detected, sensor returns HIGH
   if(motionStatus == HIGH)
   {
-    playHighSound();
+    isAlarmTriggered=true;
   }
 }
 
@@ -272,7 +276,7 @@ void readMicrophoneInputDigital(){
   //sensor returns false false when something is detected
   if (!microphoneDigitalVal ) {
 
-    //playHighSound();
+    isAlarmTriggered=true;
     
     
   }
@@ -280,7 +284,7 @@ void readMicrophoneInputDigital(){
 }
 
 //plays a low C note for 1 Second
-void playLowSound(){
+void PlayLowSound(){
   tone(buzzerPin, NOTE_C2, 1000);
   delay(1200);
   noTone(buzzerPin);
@@ -288,7 +292,7 @@ void playLowSound(){
 }
 
 //plays a high C note for 1 Second
-void playHighSound(){
+void PlayHighSound(){
 
   tone(buzzerPin, NOTE_C5, 1000);
   delay(1200);
