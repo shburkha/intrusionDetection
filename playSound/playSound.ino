@@ -1,18 +1,16 @@
-#include "notes.h";
-
 //library for LCD DIsplay
-#include <LiquidCrystal_I2C.h>;
-#include <SoftwareSerial.h>;
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+#include "notes.h"
 
 // Configure software serial port
 SoftwareSerial SIM900(12, 13); 
-char incoming_char=0;
-
 
 //define Pin numbers
 const int microphonePin= 7;
 const int buzzerPin=11;
 const int movDetectPin= 8 ;
+const int ledPin=4;
 
 //TODO: pin numbers
 const int upButtonPin = 2;
@@ -25,7 +23,6 @@ const int analogMicrophonePin=A0;
 // !----global Variables----!
 
 //Setup LCD display Pins
-
 LiquidCrystal_I2C lcd(0x27,20,4);
 
 // delay used for playing music
@@ -46,54 +43,37 @@ bool isDetectionActive=false;
 int menu = 1;
 
 void setup() {
- SIM900.begin(19200);
-  Serial.begin(19200);
+  Serial.begin(9600);
+  SIM900.begin(9600);
 
-
-  // Give time to your GSM shield log on to network
-  delay(20000);  
 
   //setup pinmodes
   pinMode(microphonePin, INPUT);
   pinMode(buzzerPin, OUTPUT);
   pinMode(movDetectPin, INPUT);
+  pinMode(ledPin,OUTPUT);
 
   pinMode(upButtonPin,INPUT_PULLUP);
   pinMode(downButtonPin,INPUT_PULLUP);
   pinMode(selectButtonPin,INPUT_PULLUP);
+ 
+ setupGSM();
+ digitalWrite(ledPin,HIGH);
 
 
  // set up the LCD's number of columns and rows:
- lcd.init();
- lcd.backlight();
+  setupDisplay();
 
- 
+
+
   updateMenu();
-
-  //receive SMS
-  // AT command to set SIM900 to SMS mode
-  SIM900.print("AT+CMGF=1\r"); 
-  delay(100);
-  // Set module to send SMS data to serial out upon receipt 
-  SIM900.print("AT+CNMI=2,2,0,0,0\r");
-  delay(100);
-  
-  
- 
-
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
 
- // Display any text that the GSM shield sends out on the serial monitor
-  if(SIM900.available() >0) {
-    //Get the character from the cellular serial port
-    incoming_char=SIM900.read(); 
-    //Print the incoming character to the terminal
-    Serial.print(incoming_char); 
-  }
+  updateSerial();
 
   menuLoop();
 
@@ -109,26 +89,49 @@ void loop() {
   }
 
 }
-void sendSMS() {
-  // AT command to set SIM900 to SMS mode
-  SIM900.print("AT+CMGF=1\r"); 
-  delay(100);
 
-  // REPLACE THE X's WITH THE RECIPIENT'S MOBILE NUMBER
-  // USE INTERNATIONAL FORMAT CODE FOR MOBILE NUMBERS
-  SIM900.println("AT+CMGS=\"+4915201798490\""); 
-  delay(100);
+void updateSerial()
+{
+  delay(500);
+  while (Serial.available()) 
+  {
+    SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
+  }
+  while(SIM900.available()) 
+  {
+    Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
+  }
+}
+
+
+void setupGSM(){
+  Serial.println("Initializing..."); 
+  delay(1000);
+
+  SIM900.println("AT"); //Handshaking with SIM900
+  updateSerial();
   
-  // REPLACE WITH YOUR OWN SMS MESSAGE CONTENT
-  SIM900.println("Message example from Arduino Uno."); 
-  delay(100);
+  SIM900.println("AT+CMGF=1"); // Configuring TEXT mode
+  updateSerial();
+  SIM900.println("AT+CNMI=1,2,0,0,0"); // Decides how newly arrived SMS messages should be handled
+  updateSerial();
+}
 
-  // End AT command with a ^Z, ASCII code 26
-  SIM900.println((char)26); 
-  delay(100);
-  SIM900.println();
-  // Give module time to send SMS
-  delay(5000); 
+
+void setupDisplay(){
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(1, 0);
+  lcd.print("Starting Up...");
+}
+
+void sendSMS(String text) {
+
+  SIM900.println("AT+CMGS=\"+4915201798490\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
+  updateSerial();
+  SIM900.print(text); //text content
+  updateSerial();
+  SIM900.write(26);
 }
 void menuLoop(){
 
@@ -152,7 +155,6 @@ void menuLoop(){
     while (!digitalRead(selectButtonPin));
   }
 }
-
 void updateMenu(){
   switch (menu) {
     case 0:
@@ -160,35 +162,49 @@ void updateMenu(){
       break;
     case 1:
       lcd.clear();
-      lcd.print(">SMS Test");
+      lcd.print(">Status Detection");
       lcd.setCursor(0, 1);
-      lcd.print(" Test Alarm");
+      lcd.print("Test Alarm");
+      lcd.setCursor(0, 2);
+      lcd.print("SMS Test");
+      lcd.setCursor(0, 3);
+      lcd.print("Activate/Deactivate");
       break;
     case 2:
       lcd.clear();
-      lcd.print(" SMS Test");
+      lcd.print("Status Detection");
       lcd.setCursor(0, 1);
       lcd.print(">Test Alarm");
+      lcd.setCursor(0, 2);
+      lcd.print("SMS Test");
+      lcd.setCursor(0, 3);
+      lcd.print("Activate/Deactivate");
       break;
     case 3:
       lcd.clear();
-      lcd.print(">Activate Detection");
+      lcd.print("Status Detection");
       lcd.setCursor(0, 1);
-      lcd.print(" MenuItem4");
+      lcd.print("Test Alarm");
+      lcd.setCursor(0, 2);
+      lcd.print(">SMS Test");
+      lcd.setCursor(0, 3);
+      lcd.print("Activate/Deactivate");
       break;
     case 4:
       lcd.clear();
-      lcd.print(" Activate Detection");
+      lcd.print("Status Detection");
       lcd.setCursor(0, 1);
-      lcd.print(">MenuItem4");
+      lcd.print("Test Alarm");
+      lcd.setCursor(0, 2);
+      lcd.print("SMS Test");
+      lcd.setCursor(0, 3);
+      lcd.print(">Activate/Deactivate");
       break;
     case 5:
       menu = 4;
       break;
   }
-
-}
-
+  }
 void executeAction() {
   switch (menu) {
     case 1:
@@ -207,9 +223,17 @@ void executeAction() {
 }
 
 void action1() {
+   //Status Alarm
   lcd.clear();
-  lcd.print(">Executing SMS Test");
-  sendSMS();
+  lcd.print("Detection is");
+  lcd.setCursor(0, 1);
+
+  if(isDetectionActive){
+    lcd.print("Activated");
+  }else{
+    lcd.print("Deactivated");
+  }
+
   delay(1500);
 }
 void action2() {
@@ -220,14 +244,23 @@ void action2() {
 }
 void action3() {
   lcd.clear();
-  isDetectionActive =!isDetectionActive;
-  lcd.print(">Activating detection");
+  lcd.print("Sending SMS Test...");
+  sendSMS("Hallo?, das ist ein Text");
   delay(1500);
 }
 void action4() {
-  lcd.clear();
-  lcd.print(">Executing #4");
-  delay(1500);
+   lcd.clear();
+
+   if(isDetectionActive){
+    lcd.print("Deactivating Detection...");
+    isDetectionActive=false;
+    
+  }else{
+    lcd.print("Activating Detection...");
+   isDetectionActive=true;
+  }
+  delay(1000);
+  action1();
 }
 
 
@@ -248,6 +281,19 @@ void readAnalogMicrophoneInput(){
 
  
 
+}
+void callSomeone() {
+  // REPLACE THE X's WITH THE NUMER YOU WANT TO DIAL
+  // USE INTERNATIONAL FORMAT CODE FOR MOBILE NUMBERS
+  SIM900.println("ATD + +4915201798490;");
+  delay(100);
+  SIM900.println();
+  
+ // In this example, the call only last 30 seconds
+ // You can edit the phone call duration in the delay time
+  delay(30000);
+  // AT command to hang up
+  SIM900.println("ATH"); // hang up
 }
 
 void PlayAlarm(){
@@ -301,90 +347,3 @@ void PlayHighSound(){
   
 }
 
-void playHarryPotter(){
-  // change this to make the song slower or faster
-  int tempo = 144;
-
-  // change this to whichever pin you want to use
-  int buzzer = 11;
-
-  // notes of the moledy followed by the duration.
-  // a 4 means a quarter note, 8 an eighteenth , 16 sixteenth, so on
-  // !!negative numbers are used to represent dotted notes,
-  // so -4 means a dotted quarter note, that is, a quarter plus an eighteenth!!
-    int melody[] = {
-
-
-    
-      REST, 2, NOTE_D4, 4,
-      NOTE_G4, -4, NOTE_AS4, 8, NOTE_A4, 4,
-      NOTE_G4, 2, NOTE_D5, 4,
-      NOTE_C5, -2, 
-      NOTE_A4, -2,
-      NOTE_G4, -4, NOTE_AS4, 8, NOTE_A4, 4,
-      NOTE_F4, 2, NOTE_GS4, 4,
-      NOTE_D4, -1, 
-      NOTE_D4, 4,
-
-      NOTE_G4, -4, NOTE_AS4, 8, NOTE_A4, 4, //10
-      NOTE_G4, 2, NOTE_D5, 4,
-     NOTE_F5, 2, NOTE_E5, 4,
-      NOTE_DS5, 2, NOTE_B4, 4,
-      NOTE_DS5, -4, NOTE_D5, 8, NOTE_CS5, 4,
-      NOTE_CS4, 2, NOTE_B4, 4,
-      NOTE_G4, -1,
-      NOTE_AS4, 4,
-        
-      NOTE_D5, 2, NOTE_AS4, 4,//18
-      NOTE_D5, 2, NOTE_AS4, 4,
-      NOTE_DS5, 2, NOTE_D5, 4,
-      NOTE_CS5, 2, NOTE_A4, 4,
-      NOTE_AS4, -4, NOTE_D5, 8, NOTE_CS5, 4,
-      NOTE_CS4, 2, NOTE_D4, 4,
-      NOTE_D5, -1, 
-      REST,4, NOTE_AS4,4,  
-
-      NOTE_D5, 2, NOTE_AS4, 4,//26
-      NOTE_D5, 2, NOTE_AS4, 4,
-      NOTE_F5, 2, NOTE_E5, 4,
-      NOTE_DS5, 2, NOTE_B4, 4,
-      NOTE_DS5, -4, NOTE_D5, 8, NOTE_CS5, 4,
-      NOTE_CS4, 2, NOTE_AS4, 4,
-      NOTE_G4, -1, 
-    };
-
-
-    int notes = sizeof(melody) / sizeof(melody[0]) / 2;
-
-    // this calculates the duration of a whole note in ms (60s/tempo)*4 beats
-    int wholenote = (60000 * 4) / tempo;
-
-    int divider = 0, noteDuration = 0;
-
-
-    // iterate over the notes of the melody. 
-  // Remember, the array is twice the number of notes (notes + durations)
-  for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
-
-    // calculates the duration of each note
-    divider = melody[thisNote + 1];
-    if (divider > 0) {
-      // regular note, just proceed
-      noteDuration = (wholenote) / divider;
-    } else if (divider < 0) {
-      // dotted notes are represented with negative durations!!
-      noteDuration = (wholenote) / abs(divider);
-      noteDuration *= 1.5; // increases the duration in half for dotted notes
-    }
-
-    // we only play the note for 90% of the duration, leaving 10% as a pause
-    tone(buzzer, melody[thisNote], noteDuration*0.9);
-
-    // Wait for the specief duration before playing the next note.
-    delay(noteDuration);
-    
-    // stop the waveform generation before the next note.
-    noTone(buzzer);
-    
-  }
-}
