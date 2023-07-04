@@ -1,6 +1,7 @@
 //library for LCD DIsplay
 #include <LiquidCrystal_I2C.h>
 #include <SoftwareSerial.h>
+#include "protothreads.h"
 #include "notes.h"
 
 // Configure software serial port
@@ -42,6 +43,89 @@ bool isDetectionActive=false;
 
 int menu = 1;
 
+
+//Threads
+pt ptMenu;
+int menuThread(struct pt* pt) {
+  PT_BEGIN(pt);
+
+  // Loop forever
+  for(;;) {
+
+
+ if (!digitalRead(downButtonPin)){
+    menu++;
+    updateMenu();
+    PT_SLEEP(pt, 100);
+    while (!digitalRead(downButtonPin));
+  }
+  if (!digitalRead(upButtonPin)){
+   
+    menu--;
+    updateMenu();
+    PT_SLEEP(pt, 100);
+    while(!digitalRead(upButtonPin));
+  }
+  if (!digitalRead(selectButtonPin)){
+    executeAction();
+    updateMenu();
+    PT_SLEEP(pt, 100);
+    while (!digitalRead(selectButtonPin));
+  }
+ PT_YIELD(pt);
+  }
+
+  PT_END(pt);
+}
+
+pt ptUpdateSerial;
+int updateSerialThread(struct pt* pt) {
+  PT_BEGIN(pt);
+
+  // Loop forever
+  for(;;) {
+
+  PT_SLEEP(pt,500);
+  while (Serial.available()) 
+  {
+    SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
+  }
+  while(SIM900.available()) 
+  {
+    
+    Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
+    
+  }
+  PT_YIELD(pt);
+  
+ 
+  }
+
+  PT_END(pt);
+}
+pt ptAlarm;
+int alarmThread(struct pt* pt) {
+  PT_BEGIN(pt);
+
+  // Loop forever
+  for(;;) {
+
+    if(isAlarmTriggered){
+
+      tone(buzzerPin, NOTE_C2, 1000);
+      PT_SLEEP(pt,1200);
+      noTone(buzzerPin);
+    }
+  
+  PT_YIELD(pt);
+  }
+
+  PT_END(pt);
+}
+
+
+
+
 void setup() {
   Serial.begin(9600);
   SIM900.begin(9600);
@@ -67,15 +151,21 @@ void setup() {
 
 
   updateMenu();
+  PT_INIT(&ptMenu);
+ PT_INIT(&ptUpdateSerial);
+  PT_INIT(&ptAlarm);
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
 
-  updateSerial();
+  PT_SCHEDULE(menuThread(&ptMenu));
+  PT_SCHEDULE(updateSerialThread(&ptUpdateSerial));
+  PT_SCHEDULE(alarmThread(&ptAlarm));
+  
 
-  menuLoop();
+  
 
   //Read Inputs
   if(isDetectionActive){
@@ -84,27 +174,38 @@ void loop() {
     detectMotion();
   }
 
-  if(isAlarmTriggered){
-    PlayAlarm();
-  }
+  
 
 }
 
 void updateSerial()
 {
+  
   delay(500);
+ 
   while (Serial.available()) 
   {
     SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
+  
   }
   while(SIM900.available()) 
   {
+
     Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
+    
+  
   }
 }
 
 
 void setupGSM(){
+
+/*
+  digitalWrite(9, HIGH);
+  delay(1000);
+  digitalWrite(9,LOW);
+  delay(5000);
+*/
   Serial.println("Initializing..."); 
   delay(1000);
 
@@ -126,7 +227,8 @@ void setupDisplay(){
 }
 
 void sendSMS(String text) {
-
+  SIM900.println("AT+CMGF=1"); // Configuring TEXT mode
+  updateSerial();
   SIM900.println("AT+CMGS=\"+4915201798490\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
   updateSerial();
   SIM900.print(text); //text content
@@ -134,6 +236,7 @@ void sendSMS(String text) {
   SIM900.write(26);
 }
 void menuLoop(){
+
 
   if (!digitalRead(downButtonPin)){
     menu++;
@@ -155,6 +258,10 @@ void menuLoop(){
     while (!digitalRead(selectButtonPin));
   }
 }
+/*
+Menu:
+
+*/
 void updateMenu(){
   switch (menu) {
     case 0:
@@ -245,7 +352,7 @@ void action2() {
 void action3() {
   lcd.clear();
   lcd.print("Sending SMS Test...");
-  sendSMS("Hallo?, das ist ein Text");
+  sendSMS("Hallodsad");
   delay(1500);
 }
 void action4() {
