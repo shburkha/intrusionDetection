@@ -411,9 +411,10 @@ void action2() {
   if(isDetectionActive){
     lcd.print("Detection OFF");
   }else{
-    lcd.print("Detection ON");
+    lcd.print("Detection is turned on in 30 Seconds");
+    delay(30000);
   }
-  delay(500);
+  delay(1000);
   action1();
 
 }
@@ -425,7 +426,7 @@ void action3() {
 void action4() {
   lcd.clear();
   lcd.print("Switching Motion Sensor...");
-  delay(500);
+  delay(1000);
   lcd.clear();
   isMotionSensorActive= !isMotionSensorActive;
   if(isMotionSensorActive){
@@ -433,14 +434,14 @@ void action4() {
   }else{
     lcd.print("Motion Sensor is now OFF");
   }
-  delay(1000);
+  delay(2000);
 }
 
 void action5(){
 
   lcd.clear();
   lcd.print("Switching Microphone Sensor...");
-  delay(500);
+  delay(1000);
   lcd.clear();
   isMicrophoneActive= !isMicrophoneActive;
   if(isMicrophoneActive){
@@ -448,7 +449,7 @@ void action5(){
   }else{
     lcd.print("Microphone Sensor is now OFF");
   }
-  delay(1000);
+  delay(2000);
 }
 void action6(){
   lcd.clear();
