@@ -1,83 +1,97 @@
 //library for LCD DIsplay
 #include <LiquidCrystal_I2C.h>
+
+//Arduino library for GSM Module
 #include <SoftwareSerial.h>
+
+//Thread library to do things simultaneously
 #include "protothreads.h"
+
+//music notes definitions
 #include "notes.h"
 
-// Configure software serial port
-SoftwareSerial SIM900(12, 13); 
+
+
+
 
 //define Pin numbers
 const int microphonePin= 7;
 const int buzzerPin=11;
 const int movDetectPin= 8 ;
 const int ledPin=4;
-
-//TODO: pin numbers
 const int upButtonPin = 2;
-const int downButtonPin = 1;
-const int selectButtonPin = 0;
+const int downButtonPin = 6;
+const int selectButtonPin = 5;
+const int gsmButtonPin=9;
 
 const int analogMicrophonePin=A0;
-
-
 // !----global Variables----!
 
-//Setup LCD display Pins
+// initialize gsm module
+SoftwareSerial SIM900(12, 13); 
+
+//initialize LCD display Pins
 LiquidCrystal_I2C lcd(0x27,20,4);
-
-// delay used for playing music
-const int pauseMusicDelay = 200;
-
-//counter for test purposes
-int count=0;
 
 //sensor values
 int microphoneAnalogVal; 
 int microphoneDigitalVal;
 int motionStatus=0;
 
-//Intrusion 
+//Intrusion booleans
 bool isAlarmTriggered=false;
 bool isDetectionActive=false;
 
+bool isMicrophoneActive=true;
+bool isMotionSensorActive=true;
+
+//User Phone Number
+const String userPhoneNumber= "+4915201798490";
+
+//menu index
 int menu = 1;
 
+//variable for SMS message
+String msg="";
 
-//Threads
+int alarmCounter=0;
+const int alarmLimit=5;
+
+
+//Threads: keep most loops separated to be able to do it simultaneously
+
+//Menu Thread is for reading button input and refreshing the menu
 pt ptMenu;
 int menuThread(struct pt* pt) {
   PT_BEGIN(pt);
 
   // Loop forever
   for(;;) {
-
-
- if (!digitalRead(downButtonPin)){
-    menu++;
-    updateMenu();
-    PT_SLEEP(pt, 100);
-    while (!digitalRead(downButtonPin));
+    if (!digitalRead(downButtonPin)){
+        menu++;
+        updateMenu();
+        PT_SLEEP(pt, 100);
+        while (!digitalRead(downButtonPin));
+      }
+      if (!digitalRead(upButtonPin)){
+      
+        menu--;
+        updateMenu();
+        PT_SLEEP(pt, 100);
+        while(!digitalRead(upButtonPin));
+      }
+      if (!digitalRead(selectButtonPin)){
+        executeAction();
+        updateMenu();
+        PT_SLEEP(pt, 100);
+        while (!digitalRead(selectButtonPin));
+      }
+    PT_YIELD(pt);
   }
-  if (!digitalRead(upButtonPin)){
-   
-    menu--;
-    updateMenu();
-    PT_SLEEP(pt, 100);
-    while(!digitalRead(upButtonPin));
-  }
-  if (!digitalRead(selectButtonPin)){
-    executeAction();
-    updateMenu();
-    PT_SLEEP(pt, 100);
-    while (!digitalRead(selectButtonPin));
-  }
- PT_YIELD(pt);
-  }
-
   PT_END(pt);
 }
 
+//updateSerial Thread refreshes the Serial input and output, mostyl used for GSM communication
 pt ptUpdateSerial;
 int updateSerialThread(struct pt* pt) {
   PT_BEGIN(pt);
@@ -85,127 +99,141 @@ int updateSerialThread(struct pt* pt) {
   // Loop forever
   for(;;) {
 
-  PT_SLEEP(pt,500);
-  while (Serial.available()) 
-  {
-    SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
-  }
-  while(SIM900.available()) 
-  {
-    
-    Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
-    
-  }
-  PT_YIELD(pt);
+   // PT_SLEEP(pt,500);
   
- 
+    if(SIM900.available()>0){
+      msg= SIM900.readString();
+      Serial.print(msg);
+      handleSMS(msg);
+      PT_SLEEP(pt,10);
+    }
+   
+  
+/*
+    while (Serial.available()) 
+    {
+      SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
+    }
+    while(SIM900.available()) 
+    {
+      Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
+      
+    }
+    */
+    
+    PT_YIELD(pt);
   }
-
   PT_END(pt);
 }
+//Alarm Thread checks if alarm was triggered and plays the sound
 pt ptAlarm;
 int alarmThread(struct pt* pt) {
   PT_BEGIN(pt);
-
   // Loop forever
   for(;;) {
-
     if(isAlarmTriggered){
-
+      //play Sound
       tone(buzzerPin, NOTE_C2, 1000);
-      PT_SLEEP(pt,1200);
+      PT_SLEEP(pt,2000);
+      alarmCounter++;
       noTone(buzzerPin);
-    }
-  
-  PT_YIELD(pt);
+      
+      //deactivate Alarm After time
+      if(alarmCounter >=alarmLimit){
+        isAlarmTriggered=false;
+        isDetectionActive=false;
+        sendSMS("ALARM! Intrusion detected!");
+        alarmCounter=0;
+      }
+    } 
+    PT_YIELD(pt);
   }
-
   PT_END(pt);
 }
 
-
-
-
+//setup function gets called once when starting
 void setup() {
+  //Setting the baud Rate
   Serial.begin(9600);
   SIM900.begin(9600);
-
 
   //setup pinmodes
   pinMode(microphonePin, INPUT);
   pinMode(buzzerPin, OUTPUT);
   pinMode(movDetectPin, INPUT);
   pinMode(ledPin,OUTPUT);
-
   pinMode(upButtonPin,INPUT_PULLUP);
   pinMode(downButtonPin,INPUT_PULLUP);
   pinMode(selectButtonPin,INPUT_PULLUP);
+
+  isDetectionActive=false;
+  isAlarmTriggered=false;
  
- setupGSM();
- digitalWrite(ledPin,HIGH);
+  setupGSM();
 
-
- // set up the LCD's number of columns and rows:
+  digitalWrite(ledPin,HIGH);
+  // set up the LCD's number of columns and rows:
   setupDisplay();
-
-
-
+  
   updateMenu();
-  PT_INIT(&ptMenu);
- PT_INIT(&ptUpdateSerial);
-  PT_INIT(&ptAlarm);
 
+  //Start THreads
+  PT_INIT(&ptMenu);
+  PT_INIT(&ptUpdateSerial);
+  PT_INIT(&ptAlarm);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
 
+
+  //loop Threads
   PT_SCHEDULE(menuThread(&ptMenu));
   PT_SCHEDULE(updateSerialThread(&ptUpdateSerial));
   PT_SCHEDULE(alarmThread(&ptAlarm));
   
-
-  
-
-  //Read Inputs
+  //Read Sensor inputs
   if(isDetectionActive){
-    readAnalogMicrophoneInput();
-   // readMicrophoneInputDigital();
-    detectMotion();
+    //microphone
+    if(isMicrophoneActive){
+      readAnalogMicrophoneInput();
+      // readMicrophoneInputDigital();
+    }
+    //motion Sensor
+    if(isMotionSensorActive){
+       detectMotion();
+    }
   }
-
-  
-
 }
 
+//communication between GSM module and Arduino
 void updateSerial()
 {
-  
   delay(500);
- 
   while (Serial.available()) 
   {
     SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
-  
   }
   while(SIM900.available()) 
   {
-
     Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
-    
-  
   }
 }
 
-
+//Setup GSM Module
 void setupGSM(){
 
-/*
-  digitalWrite(9, HIGH);
+  //Turn Off GSM Module 
+  SIM900.println("AT+CPOWD=1"); //Handshaking with SIM900
+  updateSerial();
+  delay(2000);
+
+  //Power on GSM Module
+  digitalWrite(gsmButtonPin, HIGH);
   delay(1000);
-  digitalWrite(9,LOW);
+  digitalWrite(gsmButtonPin,LOW);
   delay(5000);
-*/
+
+
   Serial.println("Initializing..."); 
   delay(1000);
 
@@ -214,7 +242,8 @@ void setupGSM(){
   
   SIM900.println("AT+CMGF=1"); // Configuring TEXT mode
   updateSerial();
-  SIM900.println("AT+CNMI=1,2,0,0,0"); // Decides how newly arrived SMS messages should be handled
+  SIM900.println("AT+CNMI=2,2,0,0,0\r");
+  //SIM900.println("AT+CNMI=1,2,0,0,0"); // Decides how newly arrived SMS messages should be handled
   updateSerial();
 }
 
@@ -229,39 +258,47 @@ void setupDisplay(){
 void sendSMS(String text) {
   SIM900.println("AT+CMGF=1"); // Configuring TEXT mode
   updateSerial();
-  SIM900.println("AT+CMGS=\"+4915201798490\"");//change ZZ with country code and xxxxxxxxxxx with phone number to sms
+  SIM900.println("AT+CMGS=\""+userPhoneNumber+"\"" );//change ZZ with country code and xxxxxxxxxxx with phone number to sms
   updateSerial();
   SIM900.print(text); //text content
   updateSerial();
   SIM900.write(26);
 }
-void menuLoop(){
 
+void handleSMS(String msg) // Receiving the SMS and extracting the Sender Mobile number & Message Text
+{
+  msg.trim();
+  
+  if(msg.startsWith("+CMT")){
 
-  if (!digitalRead(downButtonPin)){
-    menu++;
-    updateMenu();
-    delay(100);
-    while (!digitalRead(downButtonPin));
-  }
-  if (!digitalRead(upButtonPin)){
-   
-    menu--;
-    updateMenu();
-    delay(100);
-    while(!digitalRead(upButtonPin));
-  }
-  if (!digitalRead(selectButtonPin)){
-    executeAction();
-    updateMenu();
-    delay(100);
-    while (!digitalRead(selectButtonPin));
+    int phoneNumberStartIndex = msg.indexOf("\"");
+    int phoneNumberEndIndex = msg.indexOf("\"", phoneNumberStartIndex + 1);
+    int messageIndex = msg.lastIndexOf("\"" );
+    //check if indexes are not empty  
+    if (phoneNumberStartIndex != -1 && phoneNumberEndIndex != -1 && messageIndex != -1) {
+      String phoneNumber = msg.substring(phoneNumberStartIndex + 1, phoneNumberEndIndex);
+      String message = msg.substring(messageIndex +1);
+      
+
+      //format message, remove backspaces and whitespaces
+      String result = "";
+      for (int i = 0; i < message.length(); i++) {
+        char c = message.charAt(i);
+        
+        if (c != '\b' && c!= '\n' && c!=" ") {
+          result += c;
+        }
+      }
+      message=result;
+
+      //Check if Message was sent from user
+      if(phoneNumber.equals( userPhoneNumber)){
+        checkSMSForCommand(message);
+      } 
+    }
   }
 }
-/*
-Menu:
 
-*/
 void updateMenu(){
   switch (menu) {
     case 0:
@@ -269,46 +306,66 @@ void updateMenu(){
       break;
     case 1:
       lcd.clear();
-      lcd.print(">Status Detection");
+      lcd.print(">Status");
       lcd.setCursor(0, 1);
-      lcd.print("Test Alarm");
-      lcd.setCursor(0, 2);
-      lcd.print("SMS Test");
-      lcd.setCursor(0, 3);
       lcd.print("Activate/Deactivate");
+      lcd.setCursor(0, 2);
+      lcd.print("Shedule");
+      lcd.setCursor(0, 3);
+      lcd.print("Motion Sensor");
       break;
     case 2:
       lcd.clear();
-      lcd.print("Status Detection");
+      lcd.print("Status");
       lcd.setCursor(0, 1);
-      lcd.print(">Test Alarm");
+      lcd.print(">Activate/Deactivate");
       lcd.setCursor(0, 2);
-      lcd.print("SMS Test");
+      lcd.print("Shedule");
       lcd.setCursor(0, 3);
-      lcd.print("Activate/Deactivate");
+      lcd.print("Motion Sensor");
       break;
     case 3:
-      lcd.clear();
-      lcd.print("Status Detection");
+         lcd.clear();
+      lcd.print("Status");
       lcd.setCursor(0, 1);
-      lcd.print("Test Alarm");
-      lcd.setCursor(0, 2);
-      lcd.print(">SMS Test");
-      lcd.setCursor(0, 3);
       lcd.print("Activate/Deactivate");
+      lcd.setCursor(0, 2);
+      lcd.print(">Shedule");
+      lcd.setCursor(0, 3);
+      lcd.print("Motion Sensor");
       break;
     case 4:
       lcd.clear();
-      lcd.print("Status Detection");
+      lcd.print("Status");
       lcd.setCursor(0, 1);
-      lcd.print("Test Alarm");
+      lcd.print("Activate/Deactivate");
       lcd.setCursor(0, 2);
-      lcd.print("SMS Test");
+      lcd.print("Shedule");
       lcd.setCursor(0, 3);
-      lcd.print(">Activate/Deactivate");
+      lcd.print(">Motion Sensor");
       break;
     case 5:
-      menu = 4;
+    lcd.clear();
+      lcd.print("Activate/Deactivate");
+      lcd.setCursor(0, 1);
+      lcd.print("Shedule");
+      lcd.setCursor(0, 2);
+      lcd.print("Motion Sensor");
+      lcd.setCursor(0, 3);
+      lcd.print(">Microphone Sensor");
+      break;
+    case 6:
+      lcd.clear();
+      lcd.print("Shedule");
+      lcd.setCursor(0, 1);
+      lcd.print("Motion Sensor");
+      lcd.setCursor(0, 2);
+      lcd.print("Microphone Sensor");
+      lcd.setCursor(0, 3);
+      lcd.print(">SMS Test");
+      break;
+    case 7:
+      menu = 6;
       break;
   }
   }
@@ -326,6 +383,12 @@ void executeAction() {
     case 4:
       action4();
       break;
+    case 5:
+      action5();
+      break;
+    case 6:
+      action6();
+      break;
   }
 }
 
@@ -340,117 +403,135 @@ void action1() {
   }else{
     lcd.print("Deactivated");
   }
-
   delay(1500);
 }
 void action2() {
   lcd.clear();
-  lcd.print(">Executing Test Alarm");
-  isAlarmTriggered=!isAlarmTriggered;
-  delay(1500);
+  isDetectionActive=!isDetectionActive;
+  if(isDetectionActive){
+    lcd.print("Detection OFF");
+  }else{
+    lcd.print("Detection ON");
+  }
+  delay(500);
+  action1();
+
 }
 void action3() {
   lcd.clear();
-  lcd.print("Sending SMS Test...");
-  sendSMS("Hallodsad");
+  lcd.print("Select your Shedule");
   delay(1500);
 }
 void action4() {
-   lcd.clear();
-
-   if(isDetectionActive){
-    lcd.print("Deactivating Detection...");
-    isDetectionActive=false;
-    
+  lcd.clear();
+  lcd.print("Switching Motion Sensor...");
+  delay(500);
+  lcd.clear();
+  isMotionSensorActive= !isMotionSensorActive;
+  if(isMotionSensorActive){
+    lcd.print("Motion Sensor is ON");
   }else{
-    lcd.print("Activating Detection...");
-   isDetectionActive=true;
+    lcd.print("Motion Sensor is now OFF");
   }
   delay(1000);
-  action1();
+}
+
+void action5(){
+
+  lcd.clear();
+  lcd.print("Switching Microphone Sensor...");
+  delay(500);
+  lcd.clear();
+  isMicrophoneActive= !isMicrophoneActive;
+  if(isMicrophoneActive){
+    lcd.print("Microphone Sensor is ON");
+  }else{
+    lcd.print("Microphone Sensor is now OFF");
+  }
+  delay(1000);
+}
+void action6(){
+  lcd.clear();
+  lcd.print("Sending SMS Test...");
+  sendSMS("SMS Test");
+  delay(1500);
 }
 
 
+void checkSMSForCommand(String command){
 
+  command.trim();
 
-
-
-
-
-
-
-void readAnalogMicrophoneInput(){
-  //Read actual analog Value
-  microphoneAnalogVal=analogRead(analogMicrophonePin);
-
-  //Print it, so it can be viewed with Tools→Serial Plotter
-  Serial.println(microphoneAnalogVal+"");
-
- 
+  //commands for Detection
+  if(command.equalsIgnoreCase("Activate")){
+    isDetectionActive=true;
+  }else if(command.equalsIgnoreCase("Deactivate")){
+    isDetectionActive=false;
+  }
+  //commands for motion sensor
+  else if(command.equalsIgnoreCase("Motion On")){
+    isMotionSensorActive=true;
+  } else if(command.equalsIgnoreCase("Motion Off")){
+    isMotionSensorActive=true;
+  }
+  //commands for microphone 
+  else if(command.equalsIgnoreCase("Mic On")){
+    isMicrophoneActive=true;
+  } else if(command.equalsIgnoreCase("Mic Off")){
+    isMicrophoneActive=true;
+  }
+  else if(command.equalsIgnoreCase("Status")){
+    if(isDetectionActive){
+      sendSMS("Detection is ON");
+    }else{
+      sendSMS("Detection is OFF");
+    }
+  }
 
 }
+
 void callSomeone() {
-  // REPLACE THE X's WITH THE NUMER YOU WANT TO DIAL
-  // USE INTERNATIONAL FORMAT CODE FOR MOBILE NUMBERS
-  SIM900.println("ATD + +4915201798490;");
+  //call command
+  SIM900.println("ATD + \""+userPhoneNumber+"\"" );
   delay(100);
   SIM900.println();
   
- // In this example, the call only last 30 seconds
- // You can edit the phone call duration in the delay time
+  //delay before hanging up
   delay(30000);
   // AT command to hang up
   SIM900.println("ATH"); // hang up
 }
 
-void PlayAlarm(){
-
-  PlayLowSound();
-
+void detectMotion(){
+  if(isMotionSensorActive){
+    //Read sensor value
+    motionStatus=digitalRead(movDetectPin);
+    //if something is detected, sensor returns HIGH
+    if(motionStatus == HIGH)
+    {
+      isAlarmTriggered=true;
+    }
+  }
 }
 
-void detectMotion(){
+void readAnalogMicrophoneInput(){
+  if(isMicrophoneActive){
+    //Read actual analog Value
+    microphoneAnalogVal=analogRead(analogMicrophonePin);
 
-  //Read sensor value
-  motionStatus=digitalRead(movDetectPin);
-
-  //if something is detected, sensor returns HIGH
-  if(motionStatus == HIGH)
-  {
-    isAlarmTriggered=true;
+    //Print it, so it can be viewed with Tools→Serial Plotter
+    //Serial.println(microphoneAnalogVal+"");
   }
 }
 
 //reads the digital microphone input 
 void readMicrophoneInputDigital(){
 
-  microphoneDigitalVal = digitalRead(microphonePin); 
-
-  //sensor returns false false when something is detected
-  if (!microphoneDigitalVal ) {
-
-    isAlarmTriggered=true;
-    
-    
-  }
- 
+  if(isMicrophoneActive){
+    microphoneDigitalVal = digitalRead(microphonePin); 
+    //sensor returns false false when something is detected
+    if (!microphoneDigitalVal ) {
+      isAlarmTriggered=true;
+    }
+  } 
 }
-
-//plays a low C note for 1 Second
-void PlayLowSound(){
-  tone(buzzerPin, NOTE_C2, 1000);
-  delay(1200);
-  noTone(buzzerPin);
-
-}
-
-//plays a high C note for 1 Second
-void PlayHighSound(){
-
-  tone(buzzerPin, NOTE_C5, 1000);
-  delay(1200);
-  noTone(buzzerPin);
-
-  
-}
-
