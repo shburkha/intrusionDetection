@@ -11,9 +11,6 @@
 #include "notes.h"
 
 
-
-
-
 //define Pin numbers
 const int microphonePin= 7;
 const int buzzerPin=11;
@@ -49,7 +46,12 @@ bool isMotionSensorActive=true;
 const String userPhoneNumber= "+4915201798490";
 
 //menu index
-int menu = 1;
+int mainMenuIndex = 1;
+bool isSheduleMenuActive=false;
+int sheduleStart=0;
+int sheduleEnd=0;
+int sheduleMenuIndex=1;
+bool isSheduleActive=false;
 
 //variable for SMS message
 String msg="";
@@ -67,22 +69,50 @@ int menuThread(struct pt* pt) {
 
   // Loop forever
   for(;;) {
+
     if (!digitalRead(downButtonPin)){
-        menu++;
-        updateMenu();
+       if(!isSheduleMenuActive){
+         //main menu
+          mainMenuIndex++;
+          updateMainMenu();
+       }else{
+        //shedule menu
+        handleSheduleMenuInput(-1);
+        updateSheduleMenu();
+       }
+      
         PT_SLEEP(pt, 100);
         while (!digitalRead(downButtonPin));
       }
       if (!digitalRead(upButtonPin)){
-      
-        menu--;
-        updateMenu();
+       if(!isSheduleMenuActive){
+         //main menu
+          mainMenuIndex--;
+          updateMainMenu();
+       }else{
+        //shedule menu
+       handleSheduleMenuInput(+1);
+        updateSheduleMenu();
+       }
         PT_SLEEP(pt, 100);
         while(!digitalRead(upButtonPin));
       }
       if (!digitalRead(selectButtonPin)){
-        executeAction();
-        updateMenu();
+          if(!isSheduleMenuActive){
+            
+            executeAction();
+            if(!isSheduleMenuActive){
+              updateMainMenu();
+            }
+           
+            
+          }else{
+
+            sheduleMenuIndex++;
+            updateSheduleMenu();
+          }
+        
+     
         PT_SLEEP(pt, 100);
         while (!digitalRead(selectButtonPin));
       }
@@ -101,25 +131,13 @@ int updateSerialThread(struct pt* pt) {
 
    // PT_SLEEP(pt,500);
   
-    if(SIM900.available()>0){
-      msg= SIM900.readString();
-      Serial.print(msg);
+    while(SIM900.available()){
+      
+      msg=(SIM900.readString());
+      Serial.println(msg);
       handleSMS(msg);
       PT_SLEEP(pt,10);
     }
-   
-  
-/*
-    while (Serial.available()) 
-    {
-      SIM900.write(Serial.read());//Forward what Serial received to Software Serial Port
-    }
-    while(SIM900.available()) 
-    {
-      Serial.write(SIM900.read());//Forward what Software Serial received to Serial Port
-      
-    }
-    */
     
     PT_YIELD(pt);
   }
@@ -144,10 +162,59 @@ int alarmThread(struct pt* pt) {
         isDetectionActive=false;
         sendSMS("ALARM! Intrusion detected!");
         alarmCounter=0;
+        isSheduleActive=false;
       }
     } 
     PT_YIELD(pt);
   }
+  PT_END(pt);
+}
+
+//Shedule Thread
+pt ptShedule;
+int sheduleThread(struct pt* pt) {
+  PT_BEGIN(pt);
+  // Loop forever
+  
+  for(;;) {
+     PT_SLEEP(pt,60000);
+
+ if(isSheduleActive){
+    //Get Time
+   String currentTime= getTimeFromGSM();
+  
+  String currentHour= currentTime.substring(currentTime.indexOf(",")+1,currentTime.indexOf(":"));
+  Serial.println("Hour " +currentHour);
+  
+  int hour= currentHour.toInt();
+
+  //Special case
+  if(sheduleEnd< sheduleStart){
+    if(hour>= sheduleStart || hour<= sheduleEnd){
+     if(!isDetectionActive){
+        isDetectionActive=true;
+     }
+    }
+  }else if(hour>= sheduleStart && hour<= sheduleEnd){
+    if(!isDetectionActive){
+        isDetectionActive=true;
+     }
+  }else{
+    if(isDetectionActive){
+        isDetectionActive=false;
+     }
+  }
+ }
+   
+  
+
+  //SLeep for minute
+ 
+
+  PT_YIELD(pt);
+    } 
+   
+  
   PT_END(pt);
 }
 
@@ -168,19 +235,21 @@ void setup() {
 
   isDetectionActive=false;
   isAlarmTriggered=false;
- 
+  isSheduleMenuActive=false;
+
   setupGSM();
 
   digitalWrite(ledPin,HIGH);
   // set up the LCD's number of columns and rows:
   setupDisplay();
   
-  updateMenu();
+  updateMainMenu();
 
   //Start THreads
   PT_INIT(&ptMenu);
   PT_INIT(&ptUpdateSerial);
   PT_INIT(&ptAlarm);
+  PT_INIT(&ptShedule);
 }
 
 void loop() {
@@ -190,6 +259,7 @@ void loop() {
   PT_SCHEDULE(menuThread(&ptMenu));
   PT_SCHEDULE(updateSerialThread(&ptUpdateSerial));
   PT_SCHEDULE(alarmThread(&ptAlarm));
+  PT_SCHEDULE(sheduleThread(&ptShedule));
   
   //Read Sensor inputs
   if(isDetectionActive){
@@ -223,7 +293,7 @@ void updateSerial()
 void setupGSM(){
 
   //Turn Off GSM Module 
-  SIM900.println("AT+CPOWD=1"); //Handshaking with SIM900
+  SIM900.println("AT+CPOWD=1"); 
   updateSerial();
   delay(2000);
 
@@ -243,6 +313,7 @@ void setupGSM(){
   SIM900.println("AT+CMGF=1"); // Configuring TEXT mode
   updateSerial();
   SIM900.println("AT+CNMI=2,2,0,0,0\r");
+
   //SIM900.println("AT+CNMI=1,2,0,0,0"); // Decides how newly arrived SMS messages should be handled
   updateSerial();
 }
@@ -269,6 +340,13 @@ void handleSMS(String msg) // Receiving the SMS and extracting the Sender Mobile
 {
   msg.trim();
   
+  Serial.println("my message "+ msg);
+if(msg.startsWith("+CCLK:")){
+
+//Serial.println("my message "+ msg);
+}
+
+
   if(msg.startsWith("+CMT")){
 
     int phoneNumberStartIndex = msg.indexOf("\"");
@@ -298,11 +376,97 @@ void handleSMS(String msg) // Receiving the SMS and extracting the Sender Mobile
     }
   }
 }
+void handleSheduleMenuInput(int menuValue){
 
-void updateMenu(){
-  switch (menu) {
+  switch (sheduleMenuIndex) {
     case 0:
-      menu = 1;
+      sheduleMenuIndex = 1;
+      break;
+    case 1:
+      if(menuValue <0){
+        if(sheduleStart-1 <0){
+          sheduleStart=24;
+        }else{
+          sheduleStart--;
+        }
+     
+      }else if( menuValue>0){
+     
+     if(sheduleStart+1>24){
+       sheduleStart=0;
+     }else{
+      sheduleStart++;
+     }
+       
+    }
+    break;
+    case 2:
+       if(menuValue <0){
+        if(sheduleEnd-1 <0){
+          sheduleEnd=24;
+        }else{
+          sheduleEnd--;
+        }
+     
+      }else if( menuValue>0){
+     
+     if(sheduleEnd+1>24){
+       sheduleEnd=0;
+     }else{
+      sheduleEnd++;
+     }
+       
+    }
+    break;
+  }
+  updateSheduleMenu();
+}
+
+void updateSheduleMenu(){
+ switch (sheduleMenuIndex) {
+    case 0:
+      sheduleMenuIndex = 1;
+      break;
+    case 1:
+      lcd.clear();
+      lcd.print("Set Shedule");
+      lcd.setCursor(0, 1);
+      lcd.print("Select Start Time");
+      lcd.setCursor(0, 2);
+      lcd.print("Time" +String(sheduleStart) );
+      break;
+      case 2:
+      lcd.clear();
+      lcd.print("Set Shedule");
+      lcd.setCursor(0, 1);
+      lcd.print("Select End Time");
+      lcd.setCursor(0, 2);
+      lcd.print("Time" +String(sheduleEnd) );
+      break;
+      case 3:
+      lcd.clear();
+      lcd.print("Shedule is set from");
+      lcd.setCursor(0,1 );
+      lcd.print(String(sheduleStart));
+      lcd.setCursor(0, 2);
+      lcd.print("to");
+      lcd.setCursor(0,3);
+      lcd.print(String(sheduleEnd));
+      delay(2000);
+      isSheduleMenuActive=false;
+      sheduleMenuIndex=1;
+      updateMainMenu();
+      break;
+
+
+ }
+
+}
+
+void updateMainMenu(){
+  switch (mainMenuIndex) {
+    case 0:
+      mainMenuIndex = 1;
       break;
     case 1:
       lcd.clear();
@@ -310,9 +474,9 @@ void updateMenu(){
       lcd.setCursor(0, 1);
       lcd.print("Activate/Deactivate");
       lcd.setCursor(0, 2);
-      lcd.print("Shedule");
+      lcd.print("Set Shedule");
       lcd.setCursor(0, 3);
-      lcd.print("Motion Sensor");
+      lcd.print("Shedule ON/OFF");
       break;
     case 2:
       lcd.clear();
@@ -320,9 +484,9 @@ void updateMenu(){
       lcd.setCursor(0, 1);
       lcd.print(">Activate/Deactivate");
       lcd.setCursor(0, 2);
-      lcd.print("Shedule");
+      lcd.print("Set Shedule");
       lcd.setCursor(0, 3);
-      lcd.print("Motion Sensor");
+      lcd.print("Shedule ON/OFF");
       break;
     case 3:
          lcd.clear();
@@ -330,9 +494,9 @@ void updateMenu(){
       lcd.setCursor(0, 1);
       lcd.print("Activate/Deactivate");
       lcd.setCursor(0, 2);
-      lcd.print(">Shedule");
+      lcd.print(">Set Shedule");
       lcd.setCursor(0, 3);
-      lcd.print("Motion Sensor");
+      lcd.print("Shedule ON/OFF");
       break;
     case 4:
       lcd.clear();
@@ -340,23 +504,33 @@ void updateMenu(){
       lcd.setCursor(0, 1);
       lcd.print("Activate/Deactivate");
       lcd.setCursor(0, 2);
-      lcd.print("Shedule");
+      lcd.print("Set Shedule");
       lcd.setCursor(0, 3);
-      lcd.print(">Motion Sensor");
+      lcd.print(">Shedule ON/OFF");
       break;
     case 5:
     lcd.clear();
       lcd.print("Activate/Deactivate");
       lcd.setCursor(0, 1);
-      lcd.print("Shedule");
+      lcd.print("Set Shedule");
+      lcd.setCursor(0, 2);
+      lcd.print("Shedule ON/OFF");
+      lcd.setCursor(0, 3);
+      lcd.print(">Motion Sensor");
+      break;
+    case 6:
+      lcd.clear();
+      lcd.print("Set Shedule");
+      lcd.setCursor(0, 1);
+      lcd.print("Shedule ON/OFF");
       lcd.setCursor(0, 2);
       lcd.print("Motion Sensor");
       lcd.setCursor(0, 3);
       lcd.print(">Microphone Sensor");
       break;
-    case 6:
+    case 7:
       lcd.clear();
-      lcd.print("Shedule");
+      lcd.print("Shedule ON/OFF");
       lcd.setCursor(0, 1);
       lcd.print("Motion Sensor");
       lcd.setCursor(0, 2);
@@ -364,13 +538,13 @@ void updateMenu(){
       lcd.setCursor(0, 3);
       lcd.print(">SMS Test");
       break;
-    case 7:
-      menu = 6;
+    case 8:
+      mainMenuIndex = 7;
       break;
   }
   }
 void executeAction() {
-  switch (menu) {
+  switch (mainMenuIndex) {
     case 1:
       action1();
       break;
@@ -389,6 +563,8 @@ void executeAction() {
     case 6:
       action6();
       break;
+      case 7:
+      action7();
   }
 }
 
@@ -421,9 +597,28 @@ void action2() {
 void action3() {
   lcd.clear();
   lcd.print("Select your Shedule");
+  isSheduleMenuActive=true;
+  updateSheduleMenu();
   delay(1500);
 }
 void action4() {
+
+  isSheduleActive = !isSheduleActive;
+
+  lcd.clear();
+  lcd.print("Shedule is");
+  lcd.setCursor(0,1);
+  if(isSheduleActive){
+    lcd.print("ON");
+  }else{
+    lcd.print("OFF");
+
+  }
+  delay(1500);
+}
+
+
+void action5(){
   lcd.clear();
   lcd.print("Switching Motion Sensor...");
   delay(1000);
@@ -436,9 +631,7 @@ void action4() {
   }
   delay(2000);
 }
-
-void action5(){
-
+void action6(){
   lcd.clear();
   lcd.print("Switching Microphone Sensor...");
   delay(1000);
@@ -451,11 +644,33 @@ void action5(){
   }
   delay(2000);
 }
-void action6(){
+void action7(){
   lcd.clear();
   lcd.print("Sending SMS Test...");
   sendSMS("SMS Test");
   delay(1500);
+
+}
+String getTimeFromGSM() {
+  String timeString = "";
+
+  SIM900.println("AT+CMGF=1"); // Configuring TEXT mode
+  updateSerial();
+  SIM900.println("AT+CCLK?");
+  delay(500);  // Wait for the response
+
+  while (SIM900.available()) {
+    char c = SIM900.read();
+    timeString += c;
+    delay(2);  // Add a small delay to allow more characters to arrive if available
+  }
+
+  // Parse the time from the received response
+  int startIndex = timeString.indexOf("\"") + 1;
+  int endIndex = timeString.lastIndexOf("\"");
+  timeString = timeString.substring(startIndex, endIndex);
+
+  return timeString;
 }
 
 
